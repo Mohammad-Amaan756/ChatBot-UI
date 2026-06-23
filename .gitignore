@@ -25,4 +25,5 @@ dist-ssr
 
 .env
 ChatBot-UI-Api/.env
-node_modules/
+node_modules/ChatBot-UI-Api/.env
+.env
