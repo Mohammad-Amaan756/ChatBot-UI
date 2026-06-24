@@ -1,5 +1,5 @@
 import Message from "./Message";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function ChatWindow() {
   const [messages, setMessages] = useState([
@@ -11,6 +11,22 @@ function ChatWindow() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const getChats = async () => {
+       try {
+            const response = await fetch("http://localhost:3000/chats");
+            
+            const data = await response.json();
+            if(data.success){   
+                setMessages(data.chats);
+            } 
+         } catch (error) {
+             console.log("Error fetching chats:", error);
+       }
+    };
+    useEffect(() => {
+      getChats();
+    }, []);
 
   const sendMessage = async () => {
     if (input.trim() === "") return;
