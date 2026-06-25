@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 function ChatWindow() {
   const [messages, setMessages] = useState([
     {
-      text: "hello",
+      text: "Hello",
       sender: "bot",
     },
   ]);
@@ -12,30 +12,48 @@ function ChatWindow() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Get saved chats from MongoDB
   const getChats = async () => {
-       try {
-            const response = await fetch("http://localhost:3000/chats");
-            
-            const data = await response.json();
-            if(data.success){   
-                setMessages(data.chats);
-            } 
-         } catch (error) {
-             console.log("Error fetching chats:", error);
-       }
-    };
+    try {
+      const response = await fetch("http://localhost:5000/chats");
+      const data = await response.json();
+
+      if (data.success) {
+        const formattedChats = data.chats.map((chat) => ({
+          text: chat.message,
+          sender: chat.user,
+        }));
+
+        setMessages(formattedChats);
+      }
+    } catch (error) {
+      console.log("Error fetching chats:", error);
+    }
+  };
+
+  useEffect(() => {
+    getChats();
+  }, []);
+
     useEffect(() => {
-      getChats();
+    getChats();
     }, []);
 
+useEffect(() => {
+  setMessages([]);
+}, [chatId]);
+
   const sendMessage = async () => {
-    if (input.trim() === "") return;
+    if (input.trim() === "" || loading) return;
+
+    const currentMessage = input.trim();
 
     const userMsg = {
-      text: input,
-      sender: "amaan",
+      text: currentMessage,
+      sender: "user",
     };
 
+    // Show user message immediately
     setMessages((previousMessages) => [
       ...previousMessages,
       userMsg,
@@ -45,21 +63,26 @@ function ChatWindow() {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:3000/api", {
+      const response = await fetch("http://localhost:5000/api", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: input,
+          message: currentMessage,
         }),
       });
 
       const data = await response.json();
 
+      // Show Gemini/backend error in chat
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not get AI response");
+      }
+
       const aiMessage = {
         text: data.reply,
-        sender: "AI",
+        sender: "bot",
       };
 
       setMessages((previousMessages) => [
@@ -67,16 +90,18 @@ function ChatWindow() {
         aiMessage,
       ]);
     } catch (err) {
+      console.log("Frontend error:", err.message);
+
       setMessages((previousMessages) => [
         ...previousMessages,
         {
-          text: "Something went wrong",
-          sender: "AI",
+          text: err.message || "Something went wrong. Please try again.",
+          sender: "bot",
         },
       ]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -90,7 +115,7 @@ function ChatWindow() {
           />
         ))}
 
-        {loading && <div>AI is Generating...</div>}
+        {loading && <div>AI is generating...</div>}
       </div>
 
       <div className="button-input">
@@ -100,11 +125,17 @@ function ChatWindow() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") sendMessage();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              sendMessage();
+            }
           }}
+          disabled={loading}
         />
 
-        <button onClick={sendMessage}>Send</button>
+        <button onClick={sendMessage} disabled={loading}>
+          {loading ? "Thinking..." : "Send"}
+        </button>
       </div>
     </div>
   );
