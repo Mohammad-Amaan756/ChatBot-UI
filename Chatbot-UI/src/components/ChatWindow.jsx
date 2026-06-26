@@ -1,63 +1,45 @@
+import React, { useState, useEffect } from "react";
 import Message from "./Message";
-import { useEffect, useState } from "react";
+import { getMessages, saveMessages } from "../api";
 
-function ChatWindow() {
-  const [messages, setMessages] = useState([
-    {
-      text: "Hello",
-      sender: "bot",
-    },
-  ]);
-
+function ChatWindow({ conversationId }) {
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Get saved chats from MongoDB
-  const getChats = async () => {
-    try {
-      const response = await fetch("http://localhost:5000/chats");
-      const data = await response.json();
+  // Load messages whenever conversation changes
+  useEffect(() => {
+    if (!conversationId) return;
 
-      if (data.success) {
-        const formattedChats = data.chats.map((chat) => ({
-          text: chat.message,
-          sender: chat.user,
+    const loadMessages = async () => {
+      try {
+        const data = await getMessages(conversationId);
+
+        const formatted = data.map((msg) => ({
+          text: msg.text,
+          sender: msg.sender,
         }));
 
-        setMessages(formattedChats);
+        setMessages(formatted);
+      } catch (err) {
+        console.log(err);
       }
-    } catch (error) {
-      console.log("Error fetching chats:", error);
-    }
-  };
+    };
 
-  useEffect(() => {
-    getChats();
-  }, []);
-
-    useEffect(() => {
-    getChats();
-    }, []);
-
-useEffect(() => {
-  setMessages([]);
-}, [chatId]);
+    loadMessages();
+  }, [conversationId]);
 
   const sendMessage = async () => {
-    if (input.trim() === "" || loading) return;
+    if (!input.trim() || loading) return;
 
-    const currentMessage = input.trim();
-
-    const userMsg = {
-      text: currentMessage,
+    const userMessage = {
+      text: input.trim(),
       sender: "user",
     };
 
-    // Show user message immediately
-    setMessages((previousMessages) => [
-      ...previousMessages,
-      userMsg,
-    ]);
+    setMessages((prev) => [...prev, userMessage]);
+
+    const currentMessage = input.trim();
 
     setInput("");
     setLoading(true);
@@ -70,32 +52,34 @@ useEffect(() => {
         },
         body: JSON.stringify({
           message: currentMessage,
+          conversationId,
         }),
       });
 
       const data = await response.json();
 
-      // Show Gemini/backend error in chat
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Could not get AI response");
+        throw new Error(data.error || "Failed to get AI response");
       }
 
-      const aiMessage = {
+      const botMessage = {
         text: data.reply,
         sender: "bot",
       };
 
-      setMessages((previousMessages) => [
-        ...previousMessages,
-        aiMessage,
-      ]);
-    } catch (err) {
-      console.log("Frontend error:", err.message);
+      setMessages((prev) => [...prev, botMessage]);
 
-      setMessages((previousMessages) => [
-        ...previousMessages,
+      // Save both messages
+      await saveMessages(conversationId, {
+        userMessage: currentMessage,
+        botMessage: data.reply,
+      });
+
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
         {
-          text: err.message || "Something went wrong. Please try again.",
+          text: err.message,
           sender: "bot",
         },
       ]);
@@ -104,9 +88,18 @@ useEffect(() => {
     }
   };
 
+  if (!conversationId) {
+    return (
+      <div className="chat-window">
+        <h2>Select or create a chat</h2>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <div>
+    <div className="chat-window">
+
+      <div className="messages">
         {messages.map((msg, index) => (
           <Message
             key={index}
@@ -115,7 +108,11 @@ useEffect(() => {
           />
         ))}
 
-        {loading && <div>AI is generating...</div>}
+        {loading && (
+          <div className="loading">
+            AI is generating...
+          </div>
+        )}
       </div>
 
       <div className="button-input">
@@ -123,6 +120,7 @@ useEffect(() => {
           type="text"
           placeholder="Type a message..."
           value={input}
+          disabled={loading}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -130,13 +128,16 @@ useEffect(() => {
               sendMessage();
             }
           }}
-          disabled={loading}
         />
 
-        <button onClick={sendMessage} disabled={loading}>
+        <button
+          onClick={sendMessage}
+          disabled={loading || !input.trim()}
+        >
           {loading ? "Thinking..." : "Send"}
         </button>
       </div>
+
     </div>
   );
 }

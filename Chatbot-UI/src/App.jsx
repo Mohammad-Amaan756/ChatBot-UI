@@ -1,50 +1,70 @@
-
-import { useState } from "react";
-import Sidebar from './components/Sidebar'
-import './App.css'
+import { useState, useEffect } from 'react';
+import Sidebar from './components/Sidebar';
 import ChatWindow from './components/ChatWindow';
-
+import { getConversations, createConversation, deleteConversation } from './api';
 
 function App() {
-  const [conversation, setConversation] = useState([]);
-  const [setConversation, setConversation] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [activeId, setActiveId]           = useState(null);
 
-  const getConversation = async () => {
-  try {
-    const response = await fetch("http://localhost:5000/conversations");
-    const data = await response.json();
+  // Load sidebar conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, []);
 
-    if (data.success) {
-      setConversations(data.conversations);
-
-      if (data.conversations.length > 0 && !setSelectedConversationId) {
-        setSelectedConversationId(data.conversations[0]._id);
-      }
+  const loadConversations = async () => {
+    try {
+      const data = await getConversations();   // axios call → already parsed JSON
+      setConversations(data);
+    } catch (err) {
+      console.error('Failed to load conversations:', err.message);
     }
-  } catch (error) {
-    console.log("Error fetching conversations:", error);
-  }
-};
-  // const [chatId, setChatId] = useState(Date.now());
-  
-  const createNewChat = async() => {
-    const response = await fetch("http:localhost:5000/conversation",{
-      method: "post",
-      headers: {},
-    });
-    // Logic to create a new chat
-    // setChatId(Date.now());
   };
 
+  const handleNewChat = async () => {
+    try {
+      const newConv = await createConversation();
+      setConversations(prev => [newConv, ...prev]);
+      setActiveId(newConv.id);
+    } catch (err) {
+      console.error('Failed to create conversation:', err.message);
+    }
+  };
+
+  const handleSelect = (id) => setActiveId(id);
+
+  // Called by ChatWindow after first message to update sidebar title
+  const handleTitleUpdate = (id, newTitle) => {
+    setConversations(prev =>
+      prev.map(c => (c.id === id ? { ...c, title: newTitle } : c))
+    );
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteConversation(id);
+      setConversations(prev => prev.filter(c => c.id !== id));
+      if (activeId === id) setActiveId(null);
+    } catch (err) {
+      console.error('Failed to delete conversation:', err.message);
+    }
+  };
 
   return (
-   <div className='App'>
-    {/* <Sidebar createNewChat={createNewChat}/> */}
-    <Sidebar conversation = {conversation} on setSelectedConversation = {setSelectedConversation}
-    SelectedConversation=[SelectedConversation/>
-    <ChatWindow chatId={chatId}/>
-   </div>
-  )
+    <>
+      <Sidebar
+        conversations={conversations}
+        activeId={activeId}
+        onSelect={handleSelect}
+        onNewChat={handleNewChat}
+        onDelete={handleDelete}
+      />
+      <ChatWindow
+        conversationId={activeId}
+        onTitleUpdate={handleTitleUpdate}
+      />
+    </>
+  );
 }
 
 export default App;

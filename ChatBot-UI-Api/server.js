@@ -5,7 +5,6 @@ import { GoogleGenAI } from "@google/genai";
 import mongoose from "mongoose";
 import Chat from "./models/Chat.js";
 import Conversation from "./models/Conversation.js";
-import Message from "../Chatbot-UI/src/components/Message.jsx";
 
 dotenv.config();
 
@@ -18,18 +17,17 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// MongoDB connection
+// MongoDB Connection
 mongoose
   .connect(process.env.MONGODB_URI)
-  .then(() => {
-    console.log("Connected to MongoDB");
-  })
-  .catch((error) => {
-    console.log("Error connecting to MongoDB:", error.message);
-  });
+  .then(() => console.log("✅ Connected to MongoDB"))
+  .catch((err) => console.log("MongoDB Error:", err.message));
 
-  // code for new chat
-  app.post("/conversations", async (req, res) => {
+/* ===========================
+   Create New Conversation
+=========================== */
+
+app.post("/conversations", async (req, res) => {
   try {
     const conversation = await Conversation.create({
       title: "New Chat",
@@ -37,81 +35,91 @@ mongoose
 
     res.status(201).json({
       success: true,
-      conversation: conversation,
+      conversation,
     });
-  } catch (error) {
-    console.log("Error creating conversation:", error);
+  } catch (err) {
+    console.log(err);
 
     res.status(500).json({
       success: false,
-      error: "Server Error",
+      error: "Failed to create conversation",
     });
   }
 });
+
+/* ===========================
+   Get All Conversations
+=========================== */
 
 app.get("/conversations", async (req, res) => {
   try {
     const conversations = await Conversation.find().sort({
-      createdAt: -1,
+      updatedAt: -1,
     });
 
     res.json({
       success: true,
-      conversations: conversations,
+      conversations,
     });
-  } catch (error) {
-    console.log("Error fetching conversations:", error);
+  } catch (err) {
+    console.log(err);
 
     res.status(500).json({
       success: false,
-      error: "Server Error",
+      error: "Failed to fetch conversations",
     });
   }
 });
 
+/* ===========================
+   Get Messages of One Chat
+=========================== */
+
 app.get("/conversations/:id/chats", async (req, res) => {
   try {
-    const { id } = req.params;
-
     const chats = await Chat.find({
-      conversationId: id,
+      conversationId: req.params.id,
     }).sort({
       createdAt: 1,
     });
 
     res.json({
       success: true,
-      chats: chats,
+      chats,
     });
-  } catch (error) {
-    console.log("Error fetching chats:", error);
+  } catch (err) {
+    console.log(err);
 
     res.status(500).json({
       success: false,
-      error: "Server Error",
+      error: "Failed to fetch chats",
     });
   }
 });
 
-// Send message to Gemini and save chat
+/* ===========================
+   Send Message
+=========================== */
+
 app.post("/api", async (req, res) => {
   try {
     const { message, conversationId } = req.body;
 
-    if (!message || message.trim() === "") {
+    if (!message || !conversationId) {
       return res.status(400).json({
         success: false,
-        error: "Message is required",
+        error: "Message and conversationId are required.",
       });
     }
 
-    // Save user message
+    // Save User Message
     await Chat.create({
-      user: "user",
-      message: message.trim(),
+      conversationId,
+      sender: "user",
+      text: message.trim(),
     });
 
-    // Get Gemini response
+    // Generate Gemini Response
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: message.trim(),
@@ -119,61 +127,35 @@ app.post("/api", async (req, res) => {
 
     const botReply = response.text;
 
-    // Save bot response
+    // Save Bot Message
     await Chat.create({
-      conversationId: conversationId,
-      user: "bot",
-      message: botReply,
+      conversationId,
+      sender: "bot",
+      text: botReply,
     });
 
-    await Conversation.findByIdAndUpdate(conversationId, {title: Message.slice(0, 20) + "..."});
+    // Update title only if first message
+    const conversation = await Conversation.findById(conversationId);
 
-    res.status(200).json({
+    if (conversation && conversation.title === "New Chat") {
+      conversation.title =
+        message.length > 30
+          ? message.substring(0, 30) + "..."
+          : message;
+
+      await conversation.save();
+    }
+
+    res.json({
       success: true,
       reply: botReply,
     });
   } catch (err) {
-    console.log("AI Error:", err);
-
-    // Gemini quota / rate-limit error
-    if (err.status === 429) {
-      return res.status(429).json({
-        success: false,
-        error:
-          "Gemini API quota is exceeded. Please wait for a minute and try again.",
-      });
-    }
-
-    // Invalid API key / authentication error
-    if (err.status === 401 || err.status === 403) {
-      return res.status(err.status).json({
-        success: false,
-        error: "Invalid Gemini API key. Check your .env file.",
-      });
-    }
+    console.log("Gemini Error:", err);
 
     res.status(500).json({
       success: false,
-      error: "Server error. Please try again later.",
-    });
-  }
-});
-
-// Get all saved chats
-app.get("/chats", async (req, res) => {
-  try {
-    const chats = await Chat.find().sort({ createdAt: 1 });
-
-    res.status(200).json({
-      success: true,
-      chats,
-    });
-  } catch (error) {
-    console.log("Error fetching chats:", error.message);
-
-    res.status(500).json({
-      success: false,
-      error: "Could not fetch chats",
+      error: err.message || "Internal Server Error",
     });
   }
 });
@@ -181,5 +163,5 @@ app.get("/chats", async (req, res) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
