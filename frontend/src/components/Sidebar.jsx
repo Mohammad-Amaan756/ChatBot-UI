@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FiEdit2, FiTrash2 } from "react-icons/fi";
+import logo from "../assets/logo.png";
 
 function Sidebar({
   createNewChat,
@@ -55,12 +56,17 @@ function Sidebar({
 
   return (
     <div className="w-72 bg-white/80 border border-white/80 backdrop-blur-xl p-6 rounded-[36px] shadow-[0_20px_80px_rgba(131,90,255,0.12)] flex flex-col">
-      <div className="mb-6">
+      <div className="mb-6 text-center">
         <div className="text-sm font-semibold uppercase tracking-[0.22em] text-violet-500">
           Welcome to
         </div>
-        <div className="mt-2 text-2xl font-semibold text-slate-900">Jarvis</div>
-      </div>
+
+        <img
+          src={logo}
+          alt="Jarvis Logo"
+          className="w-28 h-28 mx-auto mt-3 rounded-full object-cover border-4 border-violet-500 shadow-lg"
+        />
+        </div>
 
       <button
         className="w-full rounded-[28px] bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500 mb-5"
