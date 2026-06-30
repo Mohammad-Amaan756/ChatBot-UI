@@ -1,9 +1,15 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import multer from "multer";
+import pdf from "pdf-parse-fork";
+import mammoth from "mammoth";
 import { GoogleGenAI } from "@google/genai";
 import connectDB from "./config/db.js";
 import Conversation from "./models/Conversations.js";
+import path from "path";
+import fs from "fs";
+import mime from "mime-types";
 
 dotenv.config();
 
@@ -14,11 +20,28 @@ connectDB();
 app.use(cors());
 app.use(express.json());
 
+// Multer configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
+});
+
+const upload = multer({
+  storage,
+});
+
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// Create a new conversation
+// =======================
+// Create Conversation
+// =======================
 app.post("/conversation", async (req, res) => {
   try {
     const conversation = await Conversation.create({
@@ -39,7 +62,9 @@ app.post("/conversation", async (req, res) => {
   }
 });
 
-// Get all conversations (for sidebar later)
+// =======================
+// Get All Conversations
+// =======================
 app.get("/conversation", async (req, res) => {
   try {
     const conversations = await Conversation.find().sort({
@@ -60,18 +85,29 @@ app.get("/conversation", async (req, res) => {
   }
 });
 
-app.post("/home", async (req, res) => {
+// =======================
+// Chat Route
+// =======================
+app.post("/home", upload.single("file"), async (req, res) => {
   try {
     const { chatId, message } = req.body;
 
-    if (!chatId || !message) {
-      return res.status(400).json({
-        success: false,
-        error: "chatId and message are required",
-      });
-    }
+    // chatId is always required
+if (!chatId) {
+  return res.status(400).json({
+    success: false,
+    error: "chatId is required",
+  });
+}
 
-    // Find conversation
+// User must provide either a message or a file
+if ((!message || message.trim() === "") && !req.file) {
+  return res.status(400).json({
+    success: false,
+    error: "Please provide a message or upload a file.",
+  });
+}
+
     const conversation = await Conversation.findById(chatId);
 
     if (!conversation) {
@@ -81,33 +117,78 @@ app.post("/home", async (req, res) => {
       });
     }
 
+    // Extract document text
+    let documentText = "";
+
+    if (req.file) {
+      if (req.file.mimetype === "application/pdf") {
+        const data = await pdf(req.file.buffer);
+        documentText = data.text;
+      }
+
+      else if (
+        req.file.mimetype ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ) {
+        const result = await mammoth.extractRawText({
+          buffer: req.file.buffer,
+        });
+
+        documentText = result.value;
+      }
+
+      else if (req.file.mimetype.startsWith("text/")) {
+        documentText = req.file.buffer.toString();
+      }
+
+      else {
+        return res.status(400).json({
+          success: false,
+          error: "Unsupported file type",
+        });
+      }
+    }
+
     // Save user message
     conversation.messages.push({
       role: "user",
       text: message,
     });
 
-    // Ask Gemini
+    // Build prompt
+    const prompt = documentText
+      ? `
+User Message:
+${message}
+
+Attached Document:
+${documentText}
+`
+      : message;
+
+    // Gemini
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: message,
+      contents: prompt,
     });
 
     const reply = response.text;
 
-    // Save AI message
+    // Save AI reply
     conversation.messages.push({
       role: "assistant",
       text: reply,
     });
 
-    // Rename conversation using the first user message
+    // Rename chat if first message
     if (
       conversation.title === "New Chat" &&
       conversation.messages.length === 2
     ) {
       conversation.title =
-        message.length > 40 ? message.substring(0, 40) + "..." : message;
+        message.length > 40
+          ? message.substring(0, 40) + "..."
+          : message;
     }
 
     await conversation.save();
@@ -116,6 +197,7 @@ app.post("/home", async (req, res) => {
       success: true,
       reply,
     });
+
   } catch (error) {
     console.error(error);
 
@@ -126,6 +208,9 @@ app.post("/home", async (req, res) => {
   }
 });
 
+// =======================
+// Get One Conversation
+// =======================
 app.get("/conversation/:id", async (req, res) => {
   try {
     const conversation = await Conversation.findById(req.params.id);
@@ -151,7 +236,9 @@ app.get("/conversation/:id", async (req, res) => {
   }
 });
 
-//Remane controller
+// =======================
+// Rename Conversation
+// =======================
 app.put("/chat/:id", async (req, res) => {
   try {
     const { title } = req.body;
@@ -159,7 +246,7 @@ app.put("/chat/:id", async (req, res) => {
     const conversation = await Conversation.findByIdAndUpdate(
       req.params.id,
       { title },
-      { new: true },
+      { new: true }
     );
 
     if (!conversation) {
@@ -175,6 +262,7 @@ app.put("/chat/:id", async (req, res) => {
     });
   } catch (err) {
     console.error(err);
+
     res.status(500).json({
       success: false,
       message: err.message,
@@ -182,11 +270,13 @@ app.put("/chat/:id", async (req, res) => {
   }
 });
 
-//Delete route
+// =======================
+// Delete Conversation
+// =======================
 app.delete("/chat/:id", async (req, res) => {
   try {
     const deletedConversation = await Conversation.findByIdAndDelete(
-      req.params.id,
+      req.params.id
     );
 
     if (!deletedConversation) {
